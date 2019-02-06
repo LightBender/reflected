@@ -1,0 +1,17 @@
+name "reflected"
+description "A simplified reflection library for D."
+authors "Adam Wilson"
+copyright "Copyright © 2019, Symmetry Investments LP"
+license "BSL-1.0"
+
+configuration "library" {
+    targetType "sourceLibrary"
+}
+
+configuration "unittest" {
+    targetType "executable"
+    targetName "reflected-ut"
+    sourcePaths "tests"
+    importPaths "source"
+    dflags "-dip25" "-dip1000" "-dip1008" "-main"
+}
