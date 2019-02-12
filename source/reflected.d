@@ -2,10 +2,15 @@ module reflected;
 
 public import std.meta : Unqual;
 
-public immutable ModuleDefinition testModule = reflectModule!"reflected";
-public immutable StructDefinition testStruct = reflectStruct!ModuleDefinition;
-public immutable ClassDefinition testClass = reflectClass!ClassDefinition;
-public immutable EnumDefinition testEnum = reflectEnum!Protection;
+//public immutable ModuleDefinition testModule = reflectModule!"reflected";
+//public immutable StructDefinition testStruct = reflectStruct!ModuleDefinition;
+//public immutable ClassDefinition testClass = reflectClass!ClassDefinition;
+//public immutable EnumDefinition testEnum = reflectEnum!Protection;
+
+private template Identity(T)
+{
+    alias Identity = T;
+}
 
 public enum Protection {
     Export,
@@ -121,6 +126,7 @@ public immutable struct FunctionDefinition {
         this.name = cast(immutable)name;
         this.fqn = cast(immutable)fqn;
         this.parameters = cast(immutable)parameters;
+        this.returnType = cast(immutable)returnType;
         this.isRef = cast(immutable)isRef;
         this.isShared = cast(immutable)isShared;
         this.isConst = cast(immutable)isConst;
@@ -176,8 +182,7 @@ public immutable struct ParameterDefinition {
 public immutable class TypeDefinition {
     public immutable string name;
     public immutable string fqn;
-    private immutable TypeInfo _typeInfo;
-    public @property auto typeInfo() { return _typeInfo; }
+    public immutable TypeInfo typeInfo;
 
     public immutable bool isShared;
     public immutable bool isConst;
@@ -186,14 +191,14 @@ public immutable class TypeDefinition {
     private this(
         const string fqn,
         const string name,
-        const TypeInfo typeInfo,
+        const TypeInfo type,
         const bool isShared,
         const bool isConst,
         const bool isImmutable)
     {
         this.fqn = fqn;
         this.name = name;
-        this._typeInfo = cast(immutable)typeInfo;
+        this.typeInfo = cast(immutable)type;
         this.isShared = isShared;
         this.isConst = isConst;
         this.isImmutable = isImmutable;
@@ -204,7 +209,7 @@ public immutable class PrimitiveDefinition : TypeDefinition {
     public immutable Primitive primitive;
 
     private this(const string name, const TypeInfo type, const string typeName) {
-        super(name, name, typeInfo, false, false, false);
+        super(name, name, type, false, false, false);
         if(typeName == "void") this.primitive = Primitive.void_;
         else if(typeName == "bool") this.primitive = Primitive.bool_;
         else if(typeName == "byte") this.primitive = Primitive.byte_;
@@ -257,7 +262,7 @@ public immutable class AssociativeArrayDefinition : TypeDefinition {
     }
 }
 
-public immutable class EnumDefinition : TypeDefinition {
+public final immutable class EnumDefinition : TypeDefinition {
     public immutable TypeInfo baseType;
     public immutable Protection protection;
     public immutable EnumValue[] values;
@@ -282,6 +287,7 @@ public immutable struct EnumValue {
 
 public final immutable class StructDefinition : TypeDefinition {
     public immutable Protection protection;
+    public immutable size_t alignment;
 
     public immutable FieldDefinition[] fields;
     public immutable FunctionDefinition[] methods;
@@ -291,6 +297,7 @@ public final immutable class StructDefinition : TypeDefinition {
         const string name,
         const TypeInfo_Struct typeInfo,
         const Protection protection,
+        const size_t alignment,
         const bool isShared,
         const bool isConst,
         const bool isImmutable, 
@@ -299,6 +306,40 @@ public final immutable class StructDefinition : TypeDefinition {
     {
         super(fqn, name, cast(TypeInfo)typeInfo, isShared, isConst, isImmutable);
         this.protection = cast(immutable)protection;
+        this.alignment = cast(immutable)alignment;
+        this.fields = cast(immutable)fields;
+        this.methods = cast(immutable)methods;
+    }
+}
+
+public final immutable class ClassDefinition : TypeDefinition {
+    public immutable Protection protection;
+    public immutable size_t alignment;
+    public immutable bool isAbstract;
+    public immutable bool isFinal;
+
+    public immutable FieldDefinition[] fields;
+    public immutable FunctionDefinition[] methods;
+
+    private immutable this(
+        const string fqn,
+        const string name,
+        const TypeInfo_Class typeInfo,
+        const Protection protection,
+        const size_t alignment,
+        const bool isShared,
+        const bool isConst,
+        const bool isImmutable,
+        const bool isAbstract,
+        const bool isFinal,
+        immutable(FieldDefinition)[] fields,
+        immutable(FunctionDefinition)[] methods)
+    {
+        super(fqn, name, cast(TypeInfo)typeInfo, isShared, isConst, isImmutable);
+        this.protection = cast(immutable)protection;
+        this.alignment = cast(immutable)alignment;
+        this.isAbstract = cast(immutable)isAbstract;
+        this.isFinal = cast(immutable)isFinal;
         this.fields = cast(immutable)fields;
         this.methods = cast(immutable)methods;
     }
@@ -324,62 +365,25 @@ public final immutable class InterfaceDefinition : TypeDefinition {
     }
 }
 
-public final immutable class ClassDefinition : TypeDefinition {
-    public immutable Protection protection;
-    public immutable bool isAbstract;
-    public immutable bool isFinal;
-
-    public immutable FieldDefinition[] fields;
-    public immutable FunctionDefinition[] methods;
-
-    private immutable this(
-        const string fqn,
-        const string name,
-        const TypeInfo_Class typeInfo,
-        const Protection protection,
-        const bool isShared,
-        const bool isConst,
-        const bool isImmutable,
-        const bool isAbstract,
-        const bool isFinal,
-        immutable(FieldDefinition)[] fields,
-        immutable(FunctionDefinition)[] methods)
-    {
-        super(fqn, name, cast(TypeInfo)typeInfo, isShared, isConst, isImmutable);
-        this.protection = cast(immutable)protection;
-        this.isAbstract = cast(immutable)isAbstract;
-        this.isFinal = cast(immutable)isFinal;
-        this.fields = cast(immutable)fields;
-        this.methods = cast(immutable)methods;
-    }
-}
-
 public immutable(TypeDefinition) reflectType(T)() {
-    import std.traits : fullyQualifiedName, isBasicType, isSomeString, isArray, isAssociativeArray;
+    import std.traits : fullyQualifiedName, isBasicType, isSomeString, isArray, isAssociativeArray, KeyType, ValueType;
     import std.range.primitives : ElementType;
 
-    static if(is(Unqual!T == enum)) {
-        return reflectEnum!T;
-    } else static if(is(Unqual!T == struct)) {
-        return reflectStruct!T;
-    } else static if(is(Unqual!T == class)) {
-        return reflectClass!T;
-    } else static if(is(Unqual!T == interface)) {
-        return reflectInterface!T;
-    } else static if(isBasicType!(Unqual!T) || isSomeString!T) {
+    static if(isBasicType!(Unqual!T) || isSomeString!T) {
         return new immutable PrimitiveDefinition(fullyQualifiedName!T, typeid(T), fullyQualifiedName!T);
     } else static if(isArray!(Unqual!T)) {
         return new immutable ArrayDefinition(fullyQualifiedName!T, typeid(T), reflectType!(ElementType!T), arrayDimensions!T);
     } else static if(isAssociativeArray!(Unqual!T)) {
-        return new immutable AssociativeArrayDefinition(fullyQualifiedName!T, typeid(T), reflectType!(ElementType!(T.keys)), reflectType!(ElementType!(T.values)));
+        return new immutable AssociativeArrayDefinition(fullyQualifiedName!T, typeid(T), reflectType!(KeyType!T), reflectType!(KeyType!T));
+    } else {
+        return new immutable TypeDefinition(fullyQualifiedName!T, __traits(identifier, T), typeid(T), is(T == shared), is(T == shared), is(T == shared));
     }
 }
 
 public immutable(ModuleDefinition) reflectModule(string module_)() {
-    import std.traits : fullyQualifiedName, isFunction, Fields, FieldNameTuple;
-
+    import std.traits : moduleName, fullyQualifiedName, isFunction, Fields, FieldNameTuple;
     mixin(`import dmodule = ` ~ module_ ~ `;`);
-    alias members = __traits(allMembers, dmodule);
+
     const string fqn = fullyQualifiedName!dmodule;
     const string name = __traits(identifier, dmodule);
 
@@ -390,12 +394,11 @@ public immutable(ModuleDefinition) reflectModule(string module_)() {
     immutable(ClassDefinition)[] classes;
     immutable(InterfaceDefinition)[] interfaces;
 
-    static foreach(member; members) {
-        pragma(msg, fullyQualifiedName!(__traits(getMember, dmodule, member)));
+    foreach(member; __traits(allMembers, dmodule)) {
         static if(isFunction!(__traits(getMember, dmodule, member))) {
             pragma(msg, "Reflected function: " ~ module_ ~ "." ~ member);
             functions ~= reflectFunction!(__traits(getMember, dmodule, member));
-        } else static if (is(Unqual!(__traits(getMember, dmodule, member)) == enum)) {
+         } else static if (is(Unqual!(__traits(getMember, dmodule, member)) == enum)) {
             pragma(msg, "Reflected enumeration: " ~ module_ ~ "." ~ member);
             enumerations ~= reflectEnum!(__traits(getMember, dmodule, member));
         } else static if (is(Unqual!(__traits(getMember, dmodule, member)) == struct) || is(Unqual!(__traits(getMember, dmodule, member)) == union)) {
@@ -409,16 +412,17 @@ public immutable(ModuleDefinition) reflectModule(string module_)() {
             interfaces ~= reflectInterface!(__traits(getMember, dmodule, member));
         } else static if (is(typeof(Unqual!member))) {
             pragma(msg, "Reflected module member: " ~ module_ ~ "." ~ member);
+            alias Identity!(__traits(getMember, dmodule, member)) m;
             fields ~= immutable FieldDefinition(
                 __traits(identifier, __traits(getMember, dmodule, member)),
                 reflectType!(__traits(getMember, dmodule, member)),
                 getProtection(__traits(getProtection, __traits(getMember, dmodule, member))),
-                is(__traits(getMember, dmodule, member) == shared),
-                is(__traits(getMember, dmodule, member) == const),
-                is(__traits(getMember, dmodule, member) == immutable),
+                is(m == shared),
+                is(m == const),
+                is(m == immutable),
                 (__traits(getMember, dmodule, member)).sizeof, 0);
         } else {
-            pragma(msg, "Cannot reflect on type: " ~ member);
+            pragma(msg, "Cannot reflect on: " ~ member);
         }
     }
 
@@ -431,7 +435,8 @@ public immutable(FunctionDefinition) reflectFunction(alias T)() {
 
     const string name = __traits(identifier, T);
     const string fqn = fullyQualifiedName!T;
-    const auto type = reflectType!(Unqual!(ReturnType!T));
+    const TypeDefinition type = reflectType!(Unqual!(ReturnType!T));
+
     const Protection protection = getProtection(__traits(getProtection, T));
     const bool isShared = "shared".among(__traits(getFunctionAttributes, T)) != 0;
     const bool isConst = "const".among(__traits(getFunctionAttributes, T)) != 0;
@@ -463,7 +468,7 @@ public immutable(FunctionDefinition) reflectFunction(alias T)() {
         const bool isParamRef = paramStorage[pc] == ParameterStorageClass.ref_;
         const bool isParamScope = paramStorage[pc] == ParameterStorageClass.scope_;
         const bool isParamReturn = paramStorage[pc] == ParameterStorageClass.return_;
-        parameters ~= immutable ParameterDefinition(paramNames[pc], reflectType!pt, isParamShared, isParamConst, isParamImmutable, isParamLazy, isParamConst, isParamOut, isParamRef, isParamInout, isParamScope, isParamReturn);
+        parameters ~= immutable ParameterDefinition(paramNames[pc], reflectType!(Unqual!pt), isParamShared, isParamConst, isParamImmutable, isParamLazy, isParamConst, isParamOut, isParamRef, isParamInout, isParamScope, isParamReturn);
     }
 
     return immutable FunctionDefinition(fqn, name, parameters, type, isRef, isShared, isConst, isImmutable, isInout, isAbstract, isFinal, protection, isProperty, isNothrow, isPure, isNogc, isSafe, isTrusted, isSystem);
@@ -498,16 +503,19 @@ public immutable(StructDefinition) reflectStruct(T)() if(is(Unqual!T == struct))
     const string name = __traits(identifier, T);
     const TypeInfo_Struct type = typeid(Unqual!T);
     const Protection protection = getProtection(__traits(getProtection, T));
+    const size_t alignment = T.alignof;
     const bool isShared = is(T == shared);
     const bool isConst = is(T == const);
     const bool isImmutable = is(T == immutable);
 
     immutable(FunctionDefinition)[] functions;
-    alias members = __traits(allMembers, T);
-    static foreach(m; members) {
-        static if (isFunction!m || __traits(identifier, m) == "__ctor") {
-            foreach(o; __traits(getOverloads, T, m)) {
-                functions ~= reflectFunction!o;
+    foreach(m; __traits(allMembers, T)) {
+        mixin("const Protection fp = getProtection(__traits(getProtection, " ~ fullyQualifiedName!T ~ "." ~ m ~ "));");
+        static if (fp == Protection.Export || fp == Protection.Public) {
+            static if (isFunction!(__traits(getMember, T, m)) || m == "__ctor") {
+                foreach(o; __traits(getOverloads, T, m)) {
+                    functions ~= reflectFunction!o;
+                }
             }
         }
     }
@@ -521,10 +529,10 @@ public immutable(StructDefinition) reflectStruct(T)() if(is(Unqual!T == struct))
         mixin("const Protection fp = getProtection(__traits(getProtection, " ~ fullyQualifiedName!T ~ "." ~ fn ~ "));");
         //mixin("const size_t offset = " ~ fullyQualifiedName!T ~ "." ~ fn ~ ".offsetof;");
         fields ~= immutable FieldDefinition(fn, reflectType!ft, fp, is(ft == shared), is(ft == const), is(ft == immutable), ft.sizeof, offset);
-        offset += ft.sizeof; //Workaround for https://issues.dlang.org/show_bug.cgi?id=15371
+        offset += ft.sizeof >= alignment ? ft.sizeof : alignment; //Workaround for https://issues.dlang.org/show_bug.cgi?id=15371
     }
 
-    return new immutable StructDefinition(fqn, name, type, protection, isShared, isConst, isImmutable, fields, functions);
+    return new immutable StructDefinition(fqn, name, type, protection, alignment, isShared, isConst, isImmutable, fields, functions);
 }
 
 public immutable(ClassDefinition) reflectClass(T)() if(is(Unqual!T == class)) {
@@ -536,6 +544,7 @@ public immutable(ClassDefinition) reflectClass(T)() if(is(Unqual!T == class)) {
     const string name = __traits(identifier, T);
     const TypeInfo_Class type = typeid(Unqual!T);
     const Protection protection = getProtection(__traits(getProtection, T));
+    const size_t alignment = T.alignof;
     const bool isShared = is(T == shared);
     const bool isConst = is(T == const);
     const bool isImmutable = is(T == immutable);
@@ -543,11 +552,13 @@ public immutable(ClassDefinition) reflectClass(T)() if(is(Unqual!T == class)) {
     const bool isFinal = isFinalClass!T;
 
     immutable(FunctionDefinition)[] functions;
-    alias members = __traits(allMembers, T);
-    static foreach(m; members) {
-        static if (isFunction!m || __traits(identifier, m) == "__ctor") {
-            foreach(o; __traits(getOverloads, T, m)) {
-                functions ~= reflectFunction!o;
+    foreach(m; __traits(allMembers, T)) {
+        mixin("const Protection fp = getProtection(__traits(getProtection, " ~ fullyQualifiedName!T ~ "." ~ m ~ "));");
+        static if (fp == Protection.Export || fp == Protection.Public) {
+            static if (isFunction!(__traits(getMember, T, m)) || m == "__ctor") {
+                foreach(o; __traits(getOverloads, T, m)) {
+                    functions ~= reflectFunction!o;
+                }
             }
         }
     }
@@ -561,10 +572,9 @@ public immutable(ClassDefinition) reflectClass(T)() if(is(Unqual!T == class)) {
         mixin("const Protection fp = getProtection(__traits(getProtection, " ~ fullyQualifiedName!T ~ "." ~ fn ~ "));");
         //mixin("const size_t offset = " ~ fullyQualifiedName!T ~ "." ~ fn ~ ".offsetof;");
         fields ~= immutable FieldDefinition(fn, reflectType!ft, fp, is(ft == shared), is(ft == const), is(ft == immutable), ft.sizeof, offset);
-        offset += ft.sizeof; //Workaround for https://issues.dlang.org/show_bug.cgi?id=15371
+        offset += ft.sizeof >= alignment ? ft.sizeof : alignment; //Workaround for https://issues.dlang.org/show_bug.cgi?id=15371
     }
-
-    return new immutable ClassDefinition(fqn, name, type, protection, isShared, isConst, isImmutable, isAbstract, isFinal, fields, functions);
+    return new immutable ClassDefinition(fqn, name, type, protection, alignment, isShared, isConst, isImmutable, isAbstract, isFinal, fields, functions);
 }
 
 public immutable(InterfaceDefinition) reflectInterface(T)() if(is(Unqual!T == interface)) {
@@ -573,19 +583,21 @@ public immutable(InterfaceDefinition) reflectInterface(T)() if(is(Unqual!T == in
 
     const string fqn = fullyQualifiedName!T;
     const string name = __traits(identifier, T);
-    const TypeInfo_Class type = typeid(Unqual!T);
+    const TypeInfo_Interface type = typeid(Unqual!T);
     const Protection protection = getProtection(__traits(getProtection, T));
     const bool isShared = is(T == shared);
     const bool isConst = is(T == const);
     const bool isImmutable = is(T == immutable);
 
     FunctionDefinition[] functions;
-    alias members = __traits(allMembers, T);
-    foreach(m; members) {
-        if (isFunction!m || __traits(identifier, m) == "__ctor") {
-            foreach(o; __traits(getOverloads, T, m)) {
-                functions ~= reflectFunction!o;
-            }
+    foreach(m; __traits(allMembers, T)) {
+//        mixin("const Protection fp = getProtection(__traits(getProtection, " ~ fullyQualifiedName!T ~ "." ~ m ~ "));");
+//        static if (fp == Protection.Export || fp == Protection.Public) {
+            static if (isFunction!(__traits(getMember, T, m))) {
+                foreach(o; __traits(getOverloads, T, m)) {
+                    functions ~= reflectFunction!o;
+                }
+//            }
         }
     }
 
