@@ -15,6 +15,7 @@ unittest {
     assert(reflected.enumerations.length == 1);
     assert(reflected.structs.length == 1);
     assert(reflected.classes.length == 1);
+    assert(reflected.interfaces.length == 1);
     //assert(reflected.fields.length == 1);
 }
 
@@ -97,3 +98,12 @@ unittest {
     immutable InterfaceDefinition reflected = reflectInterface!TestInterface;
     assert(reflected.methods.length == 2);
 }
+
+/*
+T templateFunction(T)(T value) { return value; }
+
+//Test Templated Functions
+unittest {
+    immutable FunctionDefinition reflected = reflectFunction!(templateFunction!int);
+}
+*/

@@ -374,14 +374,14 @@ public immutable(TypeDefinition) reflectType(T)() {
     } else static if(isArray!(Unqual!T)) {
         return new immutable ArrayDefinition(fullyQualifiedName!T, typeid(T), reflectType!(ElementType!T), arrayDimensions!T);
     } else static if(isAssociativeArray!(Unqual!T)) {
-        return new immutable AssociativeArrayDefinition(fullyQualifiedName!T, typeid(T), reflectType!(KeyType!T), reflectType!(KeyType!T));
+        return new immutable AssociativeArrayDefinition(fullyQualifiedName!T, typeid(T), reflectType!(KeyType!T), reflectType!(ValueType!T));
     } else {
         return new immutable TypeDefinition(fullyQualifiedName!T, __traits(identifier, T), typeid(T), is(T == shared), is(T == shared), is(T == shared));
     }
 }
 
 public immutable(ModuleDefinition) reflectModule(string module_)() {
-    import std.traits : moduleName, fullyQualifiedName, isFunction, Fields, FieldNameTuple;
+    import std.traits : moduleName, fullyQualifiedName, isFunction, isType, Fields, FieldNameTuple;
     mixin(`import dmodule = ` ~ module_ ~ `;`);
 
     const string fqn = fullyQualifiedName!dmodule;
@@ -398,7 +398,7 @@ public immutable(ModuleDefinition) reflectModule(string module_)() {
         static if(isFunction!(__traits(getMember, dmodule, member))) {
             pragma(msg, "Reflected function: " ~ module_ ~ "." ~ member);
             functions ~= reflectFunction!(__traits(getMember, dmodule, member));
-         } else static if (is(Unqual!(__traits(getMember, dmodule, member)) == enum)) {
+        } else static if (is(Unqual!(__traits(getMember, dmodule, member)) == enum)) {
             pragma(msg, "Reflected enumeration: " ~ module_ ~ "." ~ member);
             enumerations ~= reflectEnum!(__traits(getMember, dmodule, member));
         } else static if (is(Unqual!(__traits(getMember, dmodule, member)) == struct) || is(Unqual!(__traits(getMember, dmodule, member)) == union)) {
@@ -410,17 +410,17 @@ public immutable(ModuleDefinition) reflectModule(string module_)() {
         } else static if (is(Unqual!(__traits(getMember, dmodule, member)) == interface)) {
             pragma(msg, "Reflected interface: " ~ module_ ~ "." ~ member);
             interfaces ~= reflectInterface!(__traits(getMember, dmodule, member));
-        } else static if (is(typeof(Unqual!member))) {
+        } else static if (isVar!(__traits(getMember, dmodule, member))) {
             pragma(msg, "Reflected module member: " ~ module_ ~ "." ~ member);
-            alias Identity!(__traits(getMember, dmodule, member)) m;
+            alias m = __traits(getMember, dmodule, member);
             fields ~= immutable FieldDefinition(
                 __traits(identifier, __traits(getMember, dmodule, member)),
-                reflectType!(__traits(getMember, dmodule, member)),
-                getProtection(__traits(getProtection, __traits(getMember, dmodule, member))),
+                reflectType!(typeof(m)),
+                getProtection(__traits(getProtection, m)),
                 is(m == shared),
                 is(m == const),
                 is(m == immutable),
-                (__traits(getMember, dmodule, member)).sizeof, 0);
+                m.sizeof, 0);
         } else {
             pragma(msg, "Cannot reflect on: " ~ member);
         }
@@ -436,7 +436,7 @@ public immutable(FunctionDefinition) reflectFunction(alias T)() {
     const string name = __traits(identifier, T);
     const string fqn = fullyQualifiedName!T;
     const TypeDefinition type = reflectType!(Unqual!(ReturnType!T));
-
+//pragma(msg, fqn);
     const Protection protection = getProtection(__traits(getProtection, T));
     const bool isShared = "shared".among(__traits(getFunctionAttributes, T)) != 0;
     const bool isConst = "const".among(__traits(getFunctionAttributes, T)) != 0;
@@ -591,6 +591,7 @@ public immutable(InterfaceDefinition) reflectInterface(T)() if(is(Unqual!T == in
 
     FunctionDefinition[] functions;
     foreach(m; __traits(allMembers, T)) {
+//        This won't work because of this issue: https://issues.dlang.org/show_bug.cgi?id=19673
 //        mixin("const Protection fp = getProtection(__traits(getProtection, " ~ fullyQualifiedName!T ~ "." ~ m ~ "));");
 //        static if (fp == Protection.Export || fp == Protection.Public) {
             static if (isFunction!(__traits(getMember, T, m))) {
@@ -624,3 +625,5 @@ private template arrayDimensions(T)
         enum arrayDimensions = 0;
     }
 }
+
+private enum isVar(T...) = __traits(compiles, { void foo(typeof(T[0]) arg) { } }) && __traits(compiles, &T[0]);

@@ -8,7 +8,7 @@ reflected.dylib
 reflected.dll
 reflected.a
 reflected.lib
-reflected-test-*
+reflected-ut
 *.exe
 *.o
 *.obj
