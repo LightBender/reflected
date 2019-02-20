@@ -99,11 +99,14 @@ unittest {
     assert(reflected.methods.length == 2);
 }
 
-/*
+//void templateFunction() { }
 T templateFunction(T)(T value) { return value; }
+T templateFunction(T)(T value, int v2) { return value; }
 
 //Test Templated Functions
 unittest {
-    immutable FunctionDefinition reflected = reflectFunction!(templateFunction!int);
+    auto ret = templateFunction!int(1);
+    //immutable FunctionDefinition reflected = reflectFunction!(templateFunction!int);
+    foreach (t; __traits(getOverloads, tests.unittests, "templateFunction", true))
+        writeln(t.stringof);
 }
-*/

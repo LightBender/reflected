@@ -188,13 +188,16 @@ public immutable class TypeDefinition {
     public immutable bool isConst;
     public immutable bool isImmutable;
 
+    public immutable TypeDefinition[] templateParameters;
+
     private this(
         const string fqn,
         const string name,
         const TypeInfo type,
         const bool isShared,
         const bool isConst,
-        const bool isImmutable)
+        const bool isImmutable,
+        immutable(TypeDefinition)[] templateParameters)
     {
         this.fqn = fqn;
         this.name = name;
@@ -202,6 +205,7 @@ public immutable class TypeDefinition {
         this.isShared = isShared;
         this.isConst = isConst;
         this.isImmutable = isImmutable;
+        this.templateParameters = templateParameters;
     }
 }
 
@@ -209,7 +213,7 @@ public immutable class PrimitiveDefinition : TypeDefinition {
     public immutable Primitive primitive;
 
     private this(const string name, const TypeInfo type, const string typeName) {
-        super(name, name, type, false, false, false);
+        super(name, name, type, false, false, false, null);
         if(typeName == "void") this.primitive = Primitive.void_;
         else if(typeName == "bool") this.primitive = Primitive.bool_;
         else if(typeName == "byte") this.primitive = Primitive.byte_;
@@ -245,7 +249,7 @@ public immutable class ArrayDefinition : TypeDefinition {
     public immutable int dimensions;
 
     private this(const string fqn, const TypeInfo typeInfo, const TypeDefinition definition, const int dimensions) {
-        super(fqn, fqn, cast(TypeInfo)typeInfo, false, false, false);
+        super(fqn, fqn, cast(TypeInfo)typeInfo, false, false, false, null);
         this.definition = cast(immutable)definition;
         this.dimensions = dimensions;
     }
@@ -256,7 +260,7 @@ public immutable class AssociativeArrayDefinition : TypeDefinition {
     public immutable TypeDefinition valueDefinition;
 
     private this(const string fqn, const TypeInfo typeInfo, const TypeDefinition keyDefinition, const TypeDefinition valueDefinition) {
-        super(fqn, fqn, cast(TypeInfo)typeInfo, false, false, false);
+        super(fqn, fqn, cast(TypeInfo)typeInfo, false, false, false, null);
         this.keyDefinition = cast(immutable)keyDefinition;
         this.valueDefinition = cast(immutable)valueDefinition;
     }
@@ -268,7 +272,7 @@ public final immutable class EnumDefinition : TypeDefinition {
     public immutable EnumValue[] values;
 
     private this(const string fqn, const string name, const TypeInfo_Enum typeInfo, const TypeInfo baseType, const Protection protection, immutable(EnumValue)[] values) {
-        super(fqn, name, cast(TypeInfo)typeInfo, false, false, true);
+        super(fqn, name, cast(TypeInfo)typeInfo, false, false, true, null);
         this.baseType = cast(immutable)baseType;
         this.protection = protection;
         this.values = cast(immutable)values;
@@ -302,7 +306,8 @@ public final immutable class StructDefinition : TypeDefinition {
         const bool isConst,
         const bool isImmutable, 
         immutable(FieldDefinition)[] fields,
-        immutable(FunctionDefinition)[] methods)
+        immutable(FunctionDefinition)[] methods,
+        immutable(TypeDefinition)[] templateParameters)
     {
         super(fqn, name, cast(TypeInfo)typeInfo, isShared, isConst, isImmutable);
         this.protection = cast(immutable)protection;
@@ -333,7 +338,8 @@ public final immutable class ClassDefinition : TypeDefinition {
         const bool isAbstract,
         const bool isFinal,
         immutable(FieldDefinition)[] fields,
-        immutable(FunctionDefinition)[] methods)
+        immutable(FunctionDefinition)[] methods,
+        immutable(TypeDefinition)[] templateParameters)
     {
         super(fqn, name, cast(TypeInfo)typeInfo, isShared, isConst, isImmutable);
         this.protection = cast(immutable)protection;
@@ -357,7 +363,8 @@ public final immutable class InterfaceDefinition : TypeDefinition {
         const bool isShared,
         const bool isConst,
         const bool isImmutable, 
-        immutable(FunctionDefinition)[] methods)
+        immutable(FunctionDefinition)[] methods,
+        immutable(TypeDefinition)[] templateParameters)
     {
         super(fqn, name, cast(TypeInfo)typeInfo, isShared, isConst, isImmutable);
         this.protection = cast(immutable)protection;
@@ -366,17 +373,26 @@ public final immutable class InterfaceDefinition : TypeDefinition {
 }
 
 public immutable(TypeDefinition) reflectType(T)() {
-    import std.traits : fullyQualifiedName, isBasicType, isSomeString, isArray, isAssociativeArray, KeyType, ValueType;
+    import std.traits : fullyQualifiedName, isBasicType, isSomeString, isArray, isAssociativeArray, KeyType, ValueType, TemplateOf, TemplateArgsOf;
     import std.range.primitives : ElementType;
 
-    static if(isBasicType!(Unqual!T) || isSomeString!T) {
-        return new immutable PrimitiveDefinition(fullyQualifiedName!T, typeid(T), fullyQualifiedName!T);
-    } else static if(isArray!(Unqual!T)) {
-        return new immutable ArrayDefinition(fullyQualifiedName!T, typeid(T), reflectType!(ElementType!T), arrayDimensions!T);
-    } else static if(isAssociativeArray!(Unqual!T)) {
-        return new immutable AssociativeArrayDefinition(fullyQualifiedName!T, typeid(T), reflectType!(KeyType!T), reflectType!(ValueType!T));
+    static if (is(TemplateOf!T == void)) {
+        static if(isBasicType!(Unqual!T) || isSomeString!T) {
+            return new immutable PrimitiveDefinition(fullyQualifiedName!T, typeid(T), fullyQualifiedName!T);
+        } else static if(isArray!(Unqual!T)) {
+            return new immutable ArrayDefinition(fullyQualifiedName!T, typeid(T), reflectType!(ElementType!T), arrayDimensions!T);
+        } else static if(isAssociativeArray!(Unqual!T)) {
+            return new immutable AssociativeArrayDefinition(fullyQualifiedName!T, typeid(T), reflectType!(KeyType!T), reflectType!(ValueType!T));
+        } else {
+            return new immutable TypeDefinition(fullyQualifiedName!T, __traits(identifier, T), typeid(T), is(T == shared), is(T == shared), is(T == shared), null);
+        }
     } else {
-        return new immutable TypeDefinition(fullyQualifiedName!T, __traits(identifier, T), typeid(T), is(T == shared), is(T == shared), is(T == shared));
+        auto templateArgs = TemplateArgsOf!T;
+        immutable(TypeDefinition)[] templateTypes;
+        static foreach(ta; templateArgs) {
+            templateTypes ~= reflectType!ta;
+        }
+        return new immutable TypeDefinition(fullyQualifiedName!T, __traits(identifier, T), typeid(T), is(T == shared), is(T == shared), is(T == shared), templateTypes);
     }
 }
 
@@ -436,7 +452,7 @@ public immutable(FunctionDefinition) reflectFunction(alias T)() {
     const string name = __traits(identifier, T);
     const string fqn = fullyQualifiedName!T;
     const TypeDefinition type = reflectType!(Unqual!(ReturnType!T));
-//pragma(msg, fqn);
+
     const Protection protection = getProtection(__traits(getProtection, T));
     const bool isShared = "shared".among(__traits(getFunctionAttributes, T)) != 0;
     const bool isConst = "const".among(__traits(getFunctionAttributes, T)) != 0;
